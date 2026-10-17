@@ -1,0 +1,111 @@
+name: ${COMPOSE_PROJECT_NAME:?Run scripts/configure.py}
+x-environment: &environment
+  RAILS_ENV: production
+  NODE_ENV: production
+  INSTALLATION_ENV: docker
+  FRONTEND_URL: https://${CHAT_HOST:?Set domain}
+  FORCE_SSL: "true"
+  ENABLE_ACCOUNT_SIGNUP: "false"
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Generate .env}
+  POSTGRES_HOST: ${POSTGRES_HOST:?Set Supabase host}
+  POSTGRES_PORT: "5432"
+  POSTGRES_DATABASE: postgres
+  POSTGRES_USERNAME: ${POSTGRES_USERNAME:?Set Supabase role login}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set database password}
+  PGSSLMODE: verify-full
+  PGSSLROOTCERT: /run/supabase/ca.crt
+  PGOPTIONS: "-c search_path=public,extensions"
+  POSTGRES_STATEMENT_TIMEOUT: 120s
+  RAILS_MAX_THREADS: "3"
+  WEB_CONCURRENCY: "1"
+  SIDEKIQ_CONCURRENCY: "3"
+  REDIS_URL: redis://redis:6379
+  REDIS_PASSWORD: ${REDIS_PASSWORD:?Generate .env}
+  ACTIVE_STORAGE_SERVICE: local
+  SUPABASE_DEDICATED_CONFIRMED: ${SUPABASE_DEDICATED_CONFIRMED:-false}
+  SUPABASE_DATA_API_DISABLED: ${SUPABASE_DATA_API_DISABLED:-false}
+  MAILER_SENDER_EMAIL: ${MAILER_SENDER_EMAIL:-Hefesto Atencion <soporte@example.invalid>}
+  SMTP_DOMAIN: ${SMTP_DOMAIN:-example.invalid}
+  SMTP_ADDRESS: ${SMTP_ADDRESS:-127.0.0.1}
+  SMTP_PORT: ${SMTP_PORT:-2525}
+  SMTP_USERNAME: ${SMTP_USERNAME:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  SMTP_AUTHENTICATION: ${SMTP_AUTHENTICATION:-plain}
+  SMTP_ENABLE_STARTTLS_AUTO: "true"
+  SMTP_OPENSSL_VERIFY_MODE: peer
+x-app: &app
+  image: chatwoot/chatwoot:v4.18.0-ce@sha256:faaa58a911cda8f2ab9d717ddf8ca4332163b07da4c5da10711d896e5d667442
+  environment: *environment
+  volumes:
+    - storage:/app/storage
+    - ./ops:/opt/hefesto:ro
+    - ./certs:/run/supabase:ro
+  networks: [default, backend]
+  logging: &logging
+    driver: json-file
+    options: {max-size: 10m, max-file: "3"}
+services:
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Generate .env}
+    command: [sh, -c, 'exec redis-server --requirepass "$$REDIS_PASSWORD" --appendonly no --save 60 1']
+    volumes: [redis:/data]
+    networks: [backend]
+    healthcheck:
+      test: [CMD-SHELL, 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -q PONG']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    logging: *logging
+  web:
+    <<: *app
+    restart: unless-stopped
+    entrypoint: [/bin/sh, /opt/hefesto/start.sh]
+    command: [bundle, exec, rails, s, -p, "3000", -b, 0.0.0.0]
+    expose: ["3000"]
+    depends_on:
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, ruby, /opt/hefesto/health.rb]
+      interval: 30s
+      timeout: 10s
+      start_period: 180s
+      retries: 10
+  worker:
+    <<: *app
+    restart: unless-stopped
+    entrypoint: [/bin/sh, /opt/hefesto/start.sh]
+    command: [bundle, exec, sidekiq, -C, config/sidekiq.yml]
+    depends_on:
+      redis: {condition: service_healthy}
+  prepare:
+    <<: *app
+    profiles: [setup]
+    restart: "no"
+    entrypoint: [/bin/sh, /opt/hefesto/prepare.sh]
+    depends_on:
+      redis: {condition: service_healthy}
+  dbtools:
+    image: postgres:17-alpine
+    profiles: [tools]
+    environment:
+      PGHOST: ${POSTGRES_HOST:?Set host}
+      PGPORT: "5432"
+      PGDATABASE: postgres
+      PGUSER: ${POSTGRES_USERNAME:?Set role}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set password}
+      PGSSLMODE: verify-full
+      PGSSLROOTCERT: /run/supabase/ca.crt
+      PGOPTIONS: "-c search_path=public,extensions"
+    volumes: [./certs:/run/supabase:ro]
+    networks: [default]
+volumes:
+  storage:
+    name: ${STORAGE_VOLUME:?Run scripts/configure.py}
+  redis:
+    name: ${REDIS_VOLUME:?Run scripts/configure.py}
+networks:
+  default:
+  backend:

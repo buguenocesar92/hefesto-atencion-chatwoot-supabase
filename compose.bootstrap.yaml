@@ -1,0 +1,12 @@
+# No asignar dominio publico durante esta etapa.
+services:
+  web:
+    ports: ["127.0.0.1:3000:3000"]
+    environment:
+      FRONTEND_URL: http://127.0.0.1:3000
+      FORCE_SSL: "false"
+      ENABLE_ACCOUNT_SIGNUP: "true"
+  worker:
+    environment:
+      FRONTEND_URL: http://127.0.0.1:3000
+      FORCE_SSL: "false"

@@ -1,0 +1,4 @@
+.env
+backups/
+certs/ca.crt
+__pycache__/
