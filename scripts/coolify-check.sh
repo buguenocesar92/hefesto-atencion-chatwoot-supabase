@@ -13,6 +13,14 @@ compose="$repo_root/compose.yaml"
 
 [[ -f "$compose" ]] || { echo "ERROR: no existe $compose" >&2; exit 2; }
 
+# Overrides opcionales (solo para probar el propio chequeo):
+#   bash scripts/coolify-check.sh /tmp/x/override.yaml
+compose_args=(-f "$compose")
+for extra in "$@"; do
+  [[ -f "$extra" ]] || { echo "ERROR: no existe $extra" >&2; exit 2; }
+  compose_args+=(-f "$extra")
+done
+
 tmp_env="$(mktemp)"
 err="$(mktemp)"
 trap 'rm -f "$tmp_env" "$err"' EXIT
@@ -38,7 +46,7 @@ printf 'DB_SSLMODE=disable\nDB_NAME=mvp_prueba\n' >> "$tmp_env"
 
 # docker compose config debe renderizar sin error. stderr (warnings del
 # daemon, p.ej. ~/.docker/config.json) no debe contaminar el JSON.
-if ! render_json="$(docker compose --project-directory "$repo_root" -f "$compose" --env-file "$tmp_env" config --format json 2>"$err")"; then
+if ! render_json="$(docker compose --project-directory "$repo_root" "${compose_args[@]}" --env-file "$tmp_env" config --format json 2>"$err")"; then
   echo "compose no se pudo renderizar:" >&2
   cat "$err" >&2
   exit 1
@@ -46,7 +54,7 @@ fi
 
 # Para el punto 2 (nombres explícitos en el YAML), --no-normalize deja
 # los name: declarados como strings y los calculados por Compose como null.
-if ! raw_json="$(docker compose --project-directory "$repo_root" -f "$compose" --env-file "$tmp_env" config --format json --no-normalize 2>"$err")"; then
+if ! raw_json="$(docker compose --project-directory "$repo_root" "${compose_args[@]}" --env-file "$tmp_env" config --format json --no-normalize 2>"$err")"; then
   echo "compose no se pudo renderizar (--no-normalize):" >&2
   cat "$err" >&2
   exit 1
@@ -61,6 +69,17 @@ for svc in $(printf '%s' "$render_json" | jq -r '.services | keys[]'); do
   [[ "$profiles_len" != "0" ]] && continue
   j=".services[\"$svc\"]"
   msg=""
+  # Binds del servicio. El filtro va entre comillas simples y recibe el
+  # servicio con --arg: NO interpolar variables de shell dentro del filtro.
+  # Sin 2>/dev/null: si jq falla, set -e corta el script.
+  bind_msg=$(printf '%s' "$render_json" | jq -r --arg svc "$svc" --arg repo_root "$repo_root" '
+    [(.services[$svc].volumes // [])[]
+      | select(type == "object" and .type == "bind")
+      | .source
+      | select(. != null)
+      | select(contains("docker.sock") or (. != $repo_root and (startswith($repo_root + "/") | not)))
+    ] | .[0] // empty
+  ')
   if printf '%s' "$render_json" | jq -e "($j.ports // []) | length > 0" >/dev/null 2>&1; then
     msg="$svc: expone ports (Traefik debe enrutar el dominio)"
   elif printf '%s' "$render_json" | jq -e "$j.container_name != null" >/dev/null 2>&1; then
@@ -73,22 +92,7 @@ for svc in $(printf '%s' "$render_json" | jq -r '.services | keys[]'); do
     msg="$svc: network_mode/pid/ipc=host"
   elif printf '%s' "$render_json" | jq -e "($j.security_opt // []) | any(.[]; test(\"unconfined\"))" >/dev/null 2>&1; then
     msg="$svc: security_opt unconfined"
-  elif printf '%s' "$render_json" | jq -e --arg repo_root "$repo_root" '
-      [($j.volumes // [])[]
-        | select(type=="object" and .type=="bind")
-        | .source
-        | select(. != null)
-        | (test("docker\\.sock") or (. != $repo_root and (startswith($repo_root + "/") | not)))
-      ] | length > 0
-    ' >/dev/null 2>&1; then
-    bind_msg=$(printf '%s' "$render_json" | jq -r --arg repo_root "$repo_root" "
-      [(\$j.volumes // [])[]
-        | select(type==\"object\" and .type==\"bind\")
-        | .source
-        | select(. != null)
-        | select(test(\"docker\\\\.sock\") or (. != \$repo_root and (startswith(\$repo_root + \"/\") | not)))
-      ][0] // empty
-    " 2>/dev/null)
+  elif [[ -n "$bind_msg" ]]; then
     if [[ "$bind_msg" == *docker.sock* ]]; then
       msg="$svc: monta docker.sock"
     else
