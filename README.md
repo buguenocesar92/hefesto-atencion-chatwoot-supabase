@@ -28,5 +28,37 @@ SQL inicial sin borrado, Compose, scripts de preflight/arranque/respaldo, guía 
 
 No incluye WhatsApp conectado, correo entrante, OAuth, IA/Captain, n8n ni pagos. SMTP saliente debe configurarse; el valor inicial127.0.0.1:2525 no entrega correo. Confirmación de cuenta, invitaciones y restablecimientos no estarán operativos hasta hacerlo.
 
+## Despliegue en Coolify (MVP Hefesto)
+
+Este paquete está listo para desplegarse como recurso Docker Compose en
+Coolify (rama `coolify`, build pack Docker Compose). El compose deja que
+Traefik enrute el dominio y no fija el nombre de proyecto, los volúmenes
+ni las redes; Coolify los calcula.
+
+Variables nuevas respecto al compose original:
+
+- `DB_NAME` — base a usar dentro del proyecto Supabase. Por defecto
+  `postgres` (uso original). Coolify pone `mvp_<slug>` por app cuando
+  comparte Postgres.
+- `DB_SSLMODE` — modo TLS del cliente `psql`/Rails. Por defecto
+  `verify-full` (uso original). Si la base es interna y Coolify comparte
+  Postgres, usar `disable`; en ese caso `certs/ca.crt` deja de ser
+  obligatoria y el preflight la omite.
+
+El preflight (`ops/preflight.rb`) respeta `DB_SSLMODE`: solo exige
+`certs/ca.crt` cuando el modo es `verify-full`.
+
+Verificación estática del contrato Coolify:
+
+```
+bash scripts/coolify-check.sh
+```
+
+Genera un `.env` temporal con valores ficticios y falla si el compose
+expone puertos públicos, declara `container_name`, usa
+`privileged`/`cap_add`/`devices`, monta `docker.sock`, fija
+`name:` a nivel raíz o en redes/volúmenes, o no propaga `DB_NAME` /
+`DB_SSLMODE` al servicio web.
+
 ## Licencia
 Usa la edición Community y conserva licencias/atribuciones de Chatwoot y componentes. No incluye licencia Enterprise. Hefesto comercializa implementación, alojamiento y soporte. Verificar alcance de cada función en la edición instalada.

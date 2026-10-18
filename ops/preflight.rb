@@ -1,13 +1,16 @@
 require 'pg'
 abort 'Confirme proyecto Supabase exclusivo antes de continuar' unless ENV['SUPABASE_DEDICATED_CONFIRMED'] == 'true'
 abort 'Desactive Data API y confirme la variable antes de continuar' unless ENV['SUPABASE_DATA_API_DISABLED'] == 'true'
-abort 'Falta certs/ca.crt de su proyecto Supabase' unless File.file?(ENV.fetch('PGSSLROOTCERT'))
 abort 'Puerto debe ser 5432: conexion directa o pooler SESSION' unless ENV.fetch('POSTGRES_PORT','5432') == '5432'
+ALLOWED_SSLMODES = %w[disable allow prefer require verify-ca verify-full].freeze
+sslmode = ENV.fetch('DB_SSLMODE', ENV.fetch('PGSSLMODE', 'verify-full'))
+abort "DB_SSLMODE invalido: #{sslmode.inspect}" unless ALLOWED_SSLMODES.include?(sslmode)
+abort 'Falta certs/ca.crt de su proyecto Supabase' if sslmode == 'verify-full' && !File.file?(ENV.fetch('PGSSLROOTCERT'))
 begin
-  conn=PG.connect(host: ENV.fetch('POSTGRES_HOST'), port: ENV.fetch('POSTGRES_PORT','5432'),
+  sslopts = sslmode == 'verify-full' ? { sslmode: sslmode, sslrootcert: ENV.fetch('PGSSLROOTCERT') } : { sslmode: sslmode }
+  conn=PG.connect({ host: ENV.fetch('POSTGRES_HOST'), port: ENV.fetch('POSTGRES_PORT','5432'),
     dbname: ENV.fetch('POSTGRES_DATABASE'), user: ENV.fetch('POSTGRES_USERNAME'),
-    password: ENV.fetch('POSTGRES_PASSWORD'), sslmode: 'verify-full',
-    sslrootcert: ENV.fetch('PGSSLROOTCERT'), options: '-c search_path=public,extensions', connect_timeout: 15)
+    password: ENV.fetch('POSTGRES_PASSWORD'), options: '-c search_path=public,extensions', connect_timeout: 15 }.merge(sslopts))
   major=conn.exec("SELECT current_setting('server_version_num')::int / 10000 AS major")[0]['major'].to_i
   abort 'Este paquete admite PostgreSQL16/17; validar otra version antes de usarla' unless [16,17].include?(major)
   role=conn.exec('SELECT current_user AS role')[0]['role']

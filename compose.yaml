@@ -1,4 +1,3 @@
-name: ${COMPOSE_PROJECT_NAME:?Run scripts/configure.py}
 x-environment: &environment
   RAILS_ENV: production
   NODE_ENV: production
@@ -9,10 +8,10 @@ x-environment: &environment
   SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Generate .env}
   POSTGRES_HOST: ${POSTGRES_HOST:?Set Supabase host}
   POSTGRES_PORT: "5432"
-  POSTGRES_DATABASE: postgres
+  POSTGRES_DATABASE: ${DB_NAME:-postgres}
   POSTGRES_USERNAME: ${POSTGRES_USERNAME:?Set Supabase role login}
   POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set database password}
-  PGSSLMODE: verify-full
+  PGSSLMODE: ${DB_SSLMODE:-verify-full}
   PGSSLROOTCERT: /run/supabase/ca.crt
   PGOPTIONS: "-c search_path=public,extensions"
   POSTGRES_STATEMENT_TIMEOUT: 120s
@@ -93,19 +92,17 @@ services:
     environment:
       PGHOST: ${POSTGRES_HOST:?Set host}
       PGPORT: "5432"
-      PGDATABASE: postgres
+      PGDATABASE: ${DB_NAME:-postgres}
       PGUSER: ${POSTGRES_USERNAME:?Set role}
       PGPASSWORD: ${POSTGRES_PASSWORD:?Set password}
-      PGSSLMODE: verify-full
+      PGSSLMODE: ${DB_SSLMODE:-verify-full}
       PGSSLROOTCERT: /run/supabase/ca.crt
       PGOPTIONS: "-c search_path=public,extensions"
     volumes: [./certs:/run/supabase:ro]
     networks: [default]
 volumes:
   storage:
-    name: ${STORAGE_VOLUME:?Run scripts/configure.py}
   redis:
-    name: ${REDIS_VOLUME:?Run scripts/configure.py}
 networks:
   default:
   backend:
