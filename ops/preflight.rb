@@ -36,7 +36,7 @@ begin
     exposed=conn.exec_params("SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind IN ('r','p') AND has_table_privilege($1,c.oid,'SELECT,INSERT,UPDATE,DELETE')",[api_role])
     abort "Rol #{api_role} tiene privilegios sobre tablas public; revisar grants" if exposed.ntuples>0
   end
-  puts "Preflight OK: PostgreSQL #{major}, TLS verificado, rol/extensiones/permisos comprobados"
+  puts "Preflight OK: PostgreSQL #{major}, sslmode=#{sslmode}, rol/extensiones/permisos comprobados"
 ensure
   conn&.close
 end

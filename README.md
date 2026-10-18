@@ -60,5 +60,24 @@ expone puertos públicos, declara `container_name`, usa
 `name:` a nivel raíz o en redes/volúmenes, o no propaga `DB_NAME` /
 `DB_SSLMODE` al servicio web.
 
+Pasos operativos en destino (sin automatizar aquí):
+
+- Coolify no levanta el servicio `prepare` (tiene `profiles: [setup]`).
+  Antes de publicar el dominio hay que correr, desde la terminal del
+  contenedor web:
+  `bundle exec ruby /opt/hefesto/preflight.rb && bundle exec rails db:chatwoot_prepare`.
+  Sin esto `web` y `worker` abortan con `Faltan tablas`.
+- Completar el onboarding del super admin en la web antes de abrir el
+  dominio al público.
+- Poner `SUPABASE_DEDICATED_CONFIRMED=true` y
+  `SUPABASE_DATA_API_DISABLED=true` en el `.env` de Coolify; el preflight
+  aborta sin ambas.
+- El `SMTP` por defecto (`127.0.0.1:2525`) no entrega correo. Sin SMTP
+  real, las invitaciones de agentes, notificaciones y restablecimientos
+  no funcionan. Configurar uno antes de invitar al equipo.
+- En la base `mvp_<slug>` el preflight exige el rol `chatwoot_app` y las
+  extensiones `pg_stat_statements`, `pg_trgm`, `pgcrypto` y `vector`.
+  Crearlas en Supabase antes del primer arranque.
+
 ## Licencia
 Usa la edición Community y conserva licencias/atribuciones de Chatwoot y componentes. No incluye licencia Enterprise. Hefesto comercializa implementación, alojamiento y soporte. Verificar alcance de cada función en la edición instalada.

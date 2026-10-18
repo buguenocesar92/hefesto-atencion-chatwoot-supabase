@@ -14,50 +14,43 @@ compose="$repo_root/compose.yaml"
 [[ -f "$compose" ]] || { echo "ERROR: no existe $compose" >&2; exit 2; }
 
 tmp_env="$(mktemp)"
-trap 'rm -f "$tmp_env"' EXIT
+err="$(mktemp)"
+trap 'rm -f "$tmp_env" "$err"' EXIT
 
 # .env temporal con valores ficticios no secretos (nadie los va a leer;
-# solo necesitamos que docker compose config renderice). Para supabase-pg
-# se agregan DB_SSLMODE y DB_NAME del contrato.
-cat > "$tmp_env" <<'EOF'
-CHAT_HOST=ejemplo.invalid
-SECRET_KEY_BASE=x12345abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123
-POSTGRES_HOST=db.ejemplo.invalid
-POSTGRES_USERNAME=chatwoot_app
-POSTGRES_PASSWORD=x12345abcde
-SUPABASE_DEDICATED_CONFIRMED=true
-SUPABASE_DATA_API_DISABLED=true
-MAILER_SENDER_EMAIL=soporte@ejemplo.invalid
-SMTP_DOMAIN=ejemplo.invalid
-SMTP_ADDRESS=smtp.ejemplo.invalid
-SMTP_PORT=587
-SMTP_USERNAME=x12345
-SMTP_PASSWORD=x12345abcde
-SMTP_AUTHENTICATION=plain
-REDIS_PASSWORD=x12345abcdef0123456789abcdef01
-DB_SSLMODE=disable
-DB_NAME=mvp_prueba
-EOF
+# solo necesitamos que docker compose config renderice). Las variables
+# se extraen del compose para no olvidarse de las obligatorias con :?
+# (p.ej. COMPOSE_PROJECT_NAME, STORAGE_VOLUME, REDIS_VOLUME).
+: > "$tmp_env"
+while IFS= read -r var; do
+  [[ -z "$var" ]] && continue
+  if [[ "$var" == *HOST* || "$var" == *URL* ]]; then
+    val="https://ejemplo.invalid"
+  else
+    val="x123abc"
+  fi
+  printf '%s=%s\n' "$var" "$val" >> "$tmp_env"
+done < <(grep -oE '\$\{[A-Za-z_][A-Za-z0-9_]*' "$compose" | sed 's/^\${//' | sort -u)
+
+# Supabase compartido: DB_NAME/DB_SSLMODE deben verse en el render del
+# servicio web (contrato punto 3).
+printf 'DB_SSLMODE=disable\nDB_NAME=mvp_prueba\n' >> "$tmp_env"
 
 # docker compose config debe renderizar sin error. stderr (warnings del
 # daemon, p.ej. ~/.docker/config.json) no debe contaminar el JSON.
-if ! render_json="$(docker compose --project-directory "$repo_root" -f "$compose" --env-file "$tmp_env" config --format json 2>render.err)"; then
+if ! render_json="$(docker compose --project-directory "$repo_root" -f "$compose" --env-file "$tmp_env" config --format json 2>"$err")"; then
   echo "compose no se pudo renderizar:" >&2
-  cat render.err >&2
-  rm -f render.err
+  cat "$err" >&2
   exit 1
 fi
-rm -f render.err
 
 # Para el punto 2 (nombres explícitos en el YAML), --no-normalize deja
 # los name: declarados como strings y los calculados por Compose como null.
-if ! raw_json="$(docker compose --project-directory "$repo_root" -f "$compose" --env-file "$tmp_env" config --format json --no-normalize 2>render.err)"; then
+if ! raw_json="$(docker compose --project-directory "$repo_root" -f "$compose" --env-file "$tmp_env" config --format json --no-normalize 2>"$err")"; then
   echo "compose no se pudo renderizar (--no-normalize):" >&2
-  cat render.err >&2
-  rm -f render.err
+  cat "$err" >&2
   exit 1
 fi
-rm -f render.err
 
 fail=0
 
@@ -74,14 +67,33 @@ for svc in $(printf '%s' "$render_json" | jq -r '.services | keys[]'); do
     msg="$svc: usa container_name fijo"
   elif printf '%s' "$render_json" | jq -e "$j.privileged == true" >/dev/null 2>&1; then
     msg="$svc: privileged=true"
-  elif printf '%s' "$render_json" | jq -e "($j.cap_add // []) | length > 0 or ($j.devices // []) | length > 0" >/dev/null 2>&1; then
+  elif printf '%s' "$render_json" | jq -e "(($j.cap_add // []) | length > 0) or (($j.devices // []) | length > 0)" >/dev/null 2>&1; then
     msg="$svc: cap_add o devices activos"
   elif printf '%s' "$render_json" | jq -e "$j.network_mode == \"host\" or $j.pid == \"host\" or $j.ipc == \"host\"" >/dev/null 2>&1; then
     msg="$svc: network_mode/pid/ipc=host"
-  elif printf '%s' "$render_json" | jq -e "($j.security_opt // []) | any(. == \"seccomp=unconfined\" or . == \"apparmor=unconfined\")" >/dev/null 2>&1; then
+  elif printf '%s' "$render_json" | jq -e "($j.security_opt // []) | any(.[]; test(\"unconfined\"))" >/dev/null 2>&1; then
     msg="$svc: security_opt unconfined"
-  elif printf '%s' "$render_json" | jq -e "[$j.volumes // [] | .[] | select(type==\"string\")] | map(select(test(\"docker.sock\"))) | length > 0" >/dev/null 2>&1; then
-    msg="$svc: monta docker.sock"
+  elif printf '%s' "$render_json" | jq -e --arg repo_root "$repo_root" '
+      [($j.volumes // [])[]
+        | select(type=="object" and .type=="bind")
+        | .source
+        | select(. != null)
+        | (test("docker\\.sock") or (. != $repo_root and (startswith($repo_root + "/") | not)))
+      ] | length > 0
+    ' >/dev/null 2>&1; then
+    bind_msg=$(printf '%s' "$render_json" | jq -r --arg repo_root "$repo_root" "
+      [(\$j.volumes // [])[]
+        | select(type==\"object\" and .type==\"bind\")
+        | .source
+        | select(. != null)
+        | select(test(\"docker\\\\.sock\") or (. != \$repo_root and (startswith(\$repo_root + \"/\") | not)))
+      ][0] // empty
+    " 2>/dev/null)
+    if [[ "$bind_msg" == *docker.sock* ]]; then
+      msg="$svc: monta docker.sock"
+    else
+      msg="$svc: bind fuera del repo $bind_msg"
+    fi
   fi
   if [[ -n "$msg" ]]; then
     echo "$msg"
@@ -109,13 +121,11 @@ for vol in $(printf '%s' "$raw_json" | jq -r '.volumes | keys[]'); do
   fi
 done
 
-# supabase-pg: DB_NAME y DB_SSLMODE del .env deben verse en el render
-# (DSN o env del servicio web).
-if ! printf '%s' "$render_json" | grep -q 'mvp_prueba'; then
-  echo "Falta DB_NAME=mvp_prueba en el render (DSN o env del servicio web)"; fail=1
-fi
-if ! printf '%s' "$render_json" | grep -q 'disable'; then
-  echo "Falta DB_SSLMODE=disable en el render (DSN o env del servicio web)"; fail=1
+# supabase-pg: DB_NAME y DB_SSLMODE del .env deben verse en el servicio web
+# (DSN via POSTGRES_DATABASE/PGSSLMODE), no basta con que aparezcan en cualquier
+# parte del render.
+if ! printf '%s' "$render_json" | jq -e '.services.web.environment.POSTGRES_DATABASE == "mvp_prueba" and .services.web.environment.PGSSLMODE == "disable"' >/dev/null 2>&1; then
+  echo "web: DB_NAME/DB_SSLMODE no propagados"; fail=1
 fi
 
 if [[ $fail -ne 0 ]]; then
