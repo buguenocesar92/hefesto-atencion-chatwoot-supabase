@@ -21,5 +21,5 @@ lines=[line for line in toc.splitlines() if not re.match(r'^\d+;\s+\d+\s+\d+\s+S
 with tempfile.TemporaryDirectory(prefix='hefesto-restore-') as d:
     path=Path(d)/'restore.list';path.write_text('\n'.join(lines)+'\n');os.chmod(d,0o755);os.chmod(path,0o644)
     with dump.open('rb') as stream:
-        dc('run','--rm','--no-deps','-T','-v',d+':/restore:ro','--entrypoint','pg_restore','dbtools','--exit-on-error','--no-owner','--no-acl','--use-list=/restore/restore.list','--dbname=postgres',stdin=stream)
+        dc('run','--rm','--no-deps','-T','-v',d+':/restore:ro','--entrypoint','sh','dbtools','-c','exec pg_restore --exit-on-error --no-owner --no-acl --use-list=/restore/restore.list --dbname="$PGDATABASE"',stdin=stream)
 print('Esquema restaurado. Faltan adjuntos/Redis y pruebas; servicios no iniciados.')
