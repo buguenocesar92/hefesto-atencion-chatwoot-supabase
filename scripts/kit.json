@@ -1,0 +1,117 @@
+{
+  "software": "hefesto-atencion",
+  "version": "4.18.0-ce",
+  "database": "supabase-postgresql",
+  "piezas": [
+    "public.dump",
+    "redis.tar.gz",
+    "storage.tar.gz"
+  ],
+  "requiere": [
+    "web",
+    "worker",
+    "redis"
+  ],
+  "arranca": [
+    "redis",
+    "web",
+    "worker"
+  ],
+  "pasos": [
+    [
+      "stop",
+      "web",
+      "worker"
+    ],
+    [
+      "pieza",
+      "public.dump"
+    ],
+    [
+      "cmd",
+      [
+        "exec",
+        "-T",
+        "redis",
+        "sh",
+        "-c",
+        "REDISCLI_AUTH=\"$REDIS_PASSWORD\" redis-cli SAVE"
+      ]
+    ],
+    [
+      "stop",
+      "redis"
+    ],
+    [
+      "pieza",
+      "redis.tar.gz"
+    ],
+    [
+      "pieza",
+      "storage.tar.gz"
+    ]
+  ],
+  "comandos": {
+    "public.dump": [
+      "run",
+      "--rm",
+      "--no-deps",
+      "-T",
+      "--entrypoint",
+      "pg_dump",
+      "dbtools",
+      "--format=custom",
+      "--schema=public",
+      "--no-owner",
+      "--no-acl"
+    ],
+    "redis.tar.gz": [
+      "run",
+      "--rm",
+      "--no-deps",
+      "-T",
+      "--entrypoint",
+      "tar",
+      "redis",
+      "-czf",
+      "-",
+      "-C",
+      "/data",
+      "."
+    ],
+    "storage.tar.gz": [
+      "run",
+      "--rm",
+      "--no-deps",
+      "-T",
+      "--entrypoint",
+      "tar",
+      "web",
+      "-czf",
+      "-",
+      "-C",
+      "/app/storage",
+      "."
+    ]
+  },
+  "env_requeridas": [
+    "CHAT_HOST",
+    "SECRET_KEY_BASE",
+    "REDIS_PASSWORD",
+    "POSTGRES_HOST",
+    "POSTGRES_USERNAME",
+    "POSTGRES_PASSWORD",
+    "DB_HOST",
+    "DB_NAME",
+    "DB_PASSWORD",
+    "DB_SSLMODE"
+  ],
+  "env_secretas": [
+    "SECRET_KEY_BASE",
+    "REDIS_PASSWORD",
+    "POSTGRES_PASSWORD",
+    "DB_PASSWORD"
+  ],
+  "env_min_len": 32,
+  "env_reglas": []
+}

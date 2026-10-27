@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Stub de docker para la suite del kit.
+# No contacta el daemon: simula compose con salidas deterministas para que
+# las pruebas corran en aislamiento y sin base de datos real.
+set -uo pipefail
+
+if [ "${1:-}" = "compose" ]; then
+  shift
+  sub="${1:-}"
+  shift || true
+  case "$sub" in
+    ps)
+      # `compose ps --status running -q <servicio>`: informa un id ficticio
+      # para el servicio pedido y nada mas.
+      servicio=""
+      for arg in "$@"; do
+        case "$arg" in
+          --status) continue ;;
+          -*) continue ;;
+          *) servicio="$arg" ;;
+        esac
+      done
+      if [ -n "$servicio" ]; then
+        printf 'stub-%s\n' "$servicio"
+      fi
+      exit 0
+      ;;
+    stop|start|kill|rm|exec)
+      exit 0
+      ;;
+    run)
+      entrypoint=""
+      previo=""
+      for arg in "$@"; do
+        if [ "$previo" = "--entrypoint" ]; then
+          entrypoint="$arg"
+        fi
+        previo="$arg"
+      done
+      case "$entrypoint" in
+        pg_dump) printf 'PGDMP-SINTETICO-DUMMY\n' ;;
+        tar) printf 'TAR-SINTETICO-DUMMY\n' ;;
+        psql) printf '0\n' ;;
+        pg_restore) printf '1; 1259 16385 TABLE public tabla_sintetica postgres\n' ;;
+        *) : ;;
+      esac
+      exit 0
+      ;;
+    *) exit 0 ;;
+  esac
+fi
+
+exit 0

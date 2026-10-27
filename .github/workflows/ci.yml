@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Instalar bats y shellcheck
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends bats shellcheck
+      - name: Shellcheck limpio
+        run: |
+          files=$(find scripts ops tests -type f \( -name "*.sh" -o -name "*.bash" \) 2>/dev/null)
+          if [ -n "$files" ]; then shellcheck -S style -x $files; fi
+      - name: Composicion valida
+        run: |
+        docker compose --env-file .env.example -f compose.yaml config -q
+        docker compose --env-file .env.example -f compose.yaml -f compose.bootstrap.yaml config -q
+      - name: Suite bats
+        run: bats tests/
+      - name: Buscar secretos
+        run: |
+          docker run --rm -v "$PWD":/repo zricethezav/gitleaks:v8.21.2 detect --source /repo --no-banner --redact

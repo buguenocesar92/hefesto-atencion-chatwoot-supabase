@@ -45,7 +45,7 @@ x-app: &app
     options: {max-size: 10m, max-file: "3"}
 services:
   redis:
-    image: redis:7.4-alpine
+    image: redis:7.4-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     restart: unless-stopped
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Generate .env}
@@ -87,7 +87,7 @@ services:
     depends_on:
       redis: {condition: service_healthy}
   dbtools:
-    image: postgres:17-alpine
+    image: postgres:17-alpine@sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24
     profiles: [tools]
     environment:
       PGHOST: ${POSTGRES_HOST:?Set host}

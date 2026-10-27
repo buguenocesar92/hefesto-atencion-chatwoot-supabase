@@ -1,0 +1,13 @@
+title = "hefesto-atencion: excepciones minimas y justificadas"
+
+# Las dos detecciones restantes provienen de una version anterior de
+# scripts/coolify-check.sh (commit dc9b68c) que usaba nombres de variables
+# literales en el cuerpo del script. El archivo actual ya no contiene esos
+# literales. No se reescribe el historial: se acota la excepcion a ese
+# commit y a ese archivo. Cualquier otra deteccion sigue bloqueando.
+[[allowlists]]
+description = "Valores ficticios de coolify-check.sh en el commit dc9b68c"
+commits = ["dc9b68c"]
+paths = [
+    '''^scripts/coolify-check\.sh$''',
+]

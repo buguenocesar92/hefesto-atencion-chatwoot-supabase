@@ -2,3 +2,9 @@
 backups/
 certs/ca.crt
 __pycache__/
+
+# Contrato de respaldo (docs/CONTRATO-RESPALDO.md)
+logs/
+restore-report.json
+secrets/
+.superpowers/
